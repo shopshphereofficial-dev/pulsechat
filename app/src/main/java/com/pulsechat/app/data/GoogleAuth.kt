@@ -9,7 +9,7 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 
 object GoogleAuth {
 
-    fun signIn(context: Context): GoogleIdTokenCredential {
+    suspend fun signIn(context: Context): GoogleIdTokenCredential {
         if (Supabase.GOOGLE_WEB_CLIENT_ID.startsWith("PUT_YOUR")) {
             throw RuntimeException("Google Web client ID is not set (see README).")
         }
