@@ -5,16 +5,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.pulsechat.app.ui.PulseChatApp
-import com.pulsechat.app.ui.theme.PulseChatTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            PulseChatTheme {
-                PulseChatApp()
-            }
+            PulseChatApp()
         }
     }
 }

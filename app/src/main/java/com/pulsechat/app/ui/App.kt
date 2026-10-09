@@ -30,14 +30,12 @@ import androidx.compose.ui.unit.dp
 import com.pulsechat.app.data.Api
 import com.pulsechat.app.data.CallInfo
 import com.pulsechat.app.data.GoogleAuth
+import com.pulsechat.app.data.Prefs
 import com.pulsechat.app.data.Profile
 import com.pulsechat.app.data.Repo
 import com.pulsechat.app.data.Session
-import com.pulsechat.app.ui.theme.Bg
-import com.pulsechat.app.ui.theme.Cyan
-import com.pulsechat.app.ui.theme.Green
-import com.pulsechat.app.ui.theme.Red
-import com.pulsechat.app.ui.theme.TextDim
+import com.pulsechat.app.ui.theme.AppTheme
+import com.pulsechat.app.ui.theme.PulseChatTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -50,8 +48,11 @@ fun PulseChatApp() {
     val context = LocalContext.current
     val session = remember { Session(context) }
     val repo = remember { Repo(session) }
+    val prefs = remember { Prefs(context) }
     val scope = rememberCoroutineScope()
 
+    var themeMode by remember { mutableStateOf(prefs.themeMode) }
+    var wallpaper by remember { mutableStateOf(prefs.wallpaper) }
     var stage by remember { mutableStateOf(Stage.LOADING) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -69,36 +70,29 @@ fun PulseChatApp() {
                 profile = p
                 stage = if (p?.username.isNullOrEmpty()) Stage.USERNAME else Stage.HOME
             } else {
-                session.clear()
-                stage = Stage.LOGIN
+                session.clear(); stage = Stage.LOGIN
             }
-        } else {
-            stage = Stage.LOGIN
-        }
+        } else stage = Stage.LOGIN
     }
 
-    // heartbeat + incoming call polling (only while logged in)
     LaunchedEffect(stage) {
         if (stage != Stage.HOME) return@LaunchedEffect
-        var n = 0
         while (true) {
             withContext(Dispatchers.IO) { repo.heartbeat() }
             if (activeCall == null) {
-                val c = runCatching { withContext(Dispatchers.IO) { repo.incomingCall() } }.getOrNull()
-                if (c != null) {
-                    callOther = runCatching { withContext(Dispatchers.IO) { repo.profileById(c.callerId) } }.getOrNull()
+                val cl = runCatching { withContext(Dispatchers.IO) { repo.incomingCall() } }.getOrNull()
+                if (cl != null) {
+                    callOther = runCatching { withContext(Dispatchers.IO) { repo.profileById(cl.callerId) } }.getOrNull()
                     callIsCaller = false
-                    activeCall = c
+                    activeCall = cl
                 }
             }
-            n++
             delay(15000)
         }
     }
 
     fun doLogin() {
-        busy = true
-        error = null
+        busy = true; error = null
         scope.launch {
             try {
                 val cred = withContext(Dispatchers.Main) { GoogleAuth.signIn(context) }
@@ -113,25 +107,20 @@ fun PulseChatApp() {
                 stage = if (p?.username.isNullOrEmpty()) Stage.USERNAME else Stage.HOME
             } catch (e: Exception) {
                 error = e.message ?: "Login failed"
-            } finally {
-                busy = false
-            }
+            } finally { busy = false }
         }
     }
 
     fun claimUsername(name: String) {
-        busy = true
-        error = null
+        busy = true; error = null
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { repo.setUsername(name) }
                 profile = withContext(Dispatchers.IO) { repo.myProfile() }
                 stage = Stage.HOME
             } catch (e: Exception) {
-                error = "Ye username already taken hai. Koi aur try karo."
-            } finally {
-                busy = false
-            }
+                error = "Ye username already taken hai."
+            } finally { busy = false }
         }
     }
 
@@ -139,57 +128,49 @@ fun PulseChatApp() {
         scope.launch {
             val t = session.accessToken
             withContext(Dispatchers.IO) { if (t != null) Api.signOut(t) }
-            session.clear()
-            profile = null
-            openChat = null
-            activeCall = null
+            session.clear(); profile = null; openChat = null; activeCall = null
             stage = Stage.LOGIN
         }
     }
 
-    Surface(color = Bg, modifier = Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().systemBarsPadding()) {
-            when (stage) {
-                Stage.LOADING -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-                Stage.LOGIN -> LoginScreen(busy = busy, error = error, onLogin = { doLogin() })
-                Stage.USERNAME -> UsernameScreen(busy = busy, error = error, onSubmit = { claimUsername(it) })
-                Stage.HOME -> {
-                    val call = activeCall
-                    val chat = openChat
-                    when {
-                        call != null -> CallScreen(
-                            repo = repo,
-                            call = call,
-                            other = callOther,
-                            isCaller = callIsCaller,
-                            onClose = { activeCall = null },
-                        )
-                        chat != null -> ChatScreen(
-                            repo = repo,
-                            target = chat,
-                            myId = session.userId ?: "",
-                            onBack = { openChat = null },
-                            onStartCall = { p, kind ->
-                                scope.launch {
-                                    try {
-                                        val c = withContext(Dispatchers.IO) { repo.startCall(p.id, kind) }
-                                        callOther = p
-                                        callIsCaller = true
-                                        activeCall = c
-                                    } catch (e: Exception) {
-                                        error = e.message
+    PulseChatTheme(themeMode) {
+        val c = AppTheme.colors
+        Surface(color = c.bg, modifier = Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().systemBarsPadding()) {
+                when (stage) {
+                    Stage.LOADING -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    Stage.LOGIN -> LoginScreen(busy = busy, error = error, onLogin = { doLogin() })
+                    Stage.USERNAME -> UsernameScreen(repo = repo, busy = busy, error = error, onSubmit = { claimUsername(it) })
+                    Stage.HOME -> {
+                        val call = activeCall
+                        val chat = openChat
+                        when {
+                            call != null -> CallScreen(repo, call, callOther, callIsCaller, onClose = { activeCall = null })
+                            chat != null -> ChatScreen(
+                                repo = repo,
+                                target = chat,
+                                myId = session.userId ?: "",
+                                wallpaper = wallpaper,
+                                onBack = { openChat = null },
+                                onStartCall = { p, kind ->
+                                    scope.launch {
+                                        try {
+                                            val cl = withContext(Dispatchers.IO) { repo.startCall(p.id, kind) }
+                                            callOther = p; callIsCaller = true; activeCall = cl
+                                        } catch (e: Exception) { error = e.message }
                                     }
-                                }
-                            },
-                        )
-                        else -> HomeScreen(
-                            repo = repo,
-                            profile = profile,
-                            onOpenChat = { openChat = it },
-                            onSignOut = { signOut() },
-                        )
+                                },
+                            )
+                            else -> HomeScreen(
+                                repo = repo,
+                                profile = profile,
+                                prefs = prefs,
+                                onThemeChanged = { themeMode = it },
+                                onWallpaperChanged = { wallpaper = it },
+                                onOpenChat = { openChat = it },
+                                onSignOut = { signOut() },
+                            )
+                        }
                     }
                 }
             }
@@ -199,28 +180,23 @@ fun PulseChatApp() {
 
 @Composable
 fun LoginScreen(busy: Boolean, error: String?, onLogin: () -> Unit) {
+    val c = AppTheme.colors
     Column(
         modifier = Modifier.fillMaxSize().padding(28.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("PulseChat", style = MaterialTheme.typography.displaySmall, color = Cyan, fontWeight = FontWeight.Bold)
+        Text("PulseChat", style = MaterialTheme.typography.displaySmall, color = c.primary, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        Text("Chat, groups, presence and calls.", color = TextDim)
+        Text("Chat, groups, presence and calls.", color = c.dim)
         Spacer(Modifier.height(40.dp))
         Button(
             onClick = onLogin,
             enabled = !busy,
-            colors = ButtonDefaults.buttonColors(containerColor = Green),
+            colors = ButtonDefaults.buttonColors(containerColor = c.ok),
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Continue with Google") }
-        if (busy) {
-            Spacer(Modifier.height(16.dp))
-            CircularProgressIndicator()
-        }
-        error?.let {
-            Spacer(Modifier.height(16.dp))
-            Text(it, color = Red, style = MaterialTheme.typography.bodySmall)
-        }
+        if (busy) { Spacer(Modifier.height(16.dp)); CircularProgressIndicator() }
+        error?.let { Spacer(Modifier.height(16.dp)); Text(it, color = c.danger, style = MaterialTheme.typography.bodySmall) }
     }
 }

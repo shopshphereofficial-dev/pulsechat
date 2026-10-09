@@ -14,10 +14,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -32,19 +39,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pulsechat.app.data.ChatSummary
+import com.pulsechat.app.data.Prefs
 import com.pulsechat.app.data.Profile
 import com.pulsechat.app.data.Repo
-import com.pulsechat.app.ui.theme.Cyan
-import com.pulsechat.app.ui.theme.Green
-import com.pulsechat.app.ui.theme.Red
-import com.pulsechat.app.ui.theme.Surface1
-import com.pulsechat.app.ui.theme.Surface2
-import com.pulsechat.app.ui.theme.TextDim
-import com.pulsechat.app.ui.theme.TextMain
-import com.pulsechat.app.ui.theme.Violet
+import com.pulsechat.app.ui.theme.AppTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -54,13 +56,17 @@ import kotlinx.coroutines.withContext
 fun HomeScreen(
     repo: Repo,
     profile: Profile?,
+    prefs: Prefs,
+    onThemeChanged: (Int) -> Unit,
+    onWallpaperChanged: (Int) -> Unit,
     onOpenChat: (ChatTarget) -> Unit,
     onSignOut: () -> Unit,
 ) {
+    val c = AppTheme.colors
     var tab by remember { mutableStateOf(0) }
     var showNewChat by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(c.bg)) {
         Box(Modifier.weight(1f)) {
             when {
                 showNewChat -> NewChatScreen(
@@ -70,25 +76,36 @@ fun HomeScreen(
                 )
                 tab == 0 -> ChatListScreen(repo = repo, onOpenChat = onOpenChat, onNewChat = { showNewChat = true })
                 tab == 1 -> FriendsScreen(repo = repo, onOpenChat = onOpenChat)
-                else -> ProfileScreen(profile = profile, onSignOut = onSignOut)
+                else -> SettingsScreen(
+                    profile = profile,
+                    prefs = prefs,
+                    onThemeChanged = onThemeChanged,
+                    onWallpaperChanged = onWallpaperChanged,
+                    onSignOut = onSignOut,
+                )
             }
         }
         if (!showNewChat) {
             Row(
-                modifier = Modifier.fillMaxWidth().background(Surface1).padding(vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth().background(c.surface).padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
-                val tabs = listOf("Chats", "Friends", "Profile")
-                tabs.forEachIndexed { i, label ->
-                    Text(
-                        label,
-                        color = if (tab == i) Cyan else TextDim,
-                        fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Normal,
+                val tabs = listOf(
+                    Triple("Chats", Icons.Filled.Chat, 0),
+                    Triple("Friends", Icons.Filled.People, 1),
+                    Triple("Settings", Icons.Filled.Settings, 2),
+                )
+                tabs.forEach { (label, icon, i) ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
                             .clickable { tab = i }
-                            .padding(horizontal = 22.dp, vertical = 8.dp),
-                    )
+                            .padding(horizontal = 18.dp, vertical = 6.dp),
+                    ) {
+                        Icon(icon, contentDescription = label, tint = if (tab == i) c.primary else c.dim)
+                        Text(label, color = if (tab == i) c.primary else c.dim, style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             }
         }
@@ -97,68 +114,58 @@ fun HomeScreen(
 
 @Composable
 fun ChatListScreen(repo: Repo, onOpenChat: (ChatTarget) -> Unit, onNewChat: () -> Unit) {
+    val c = AppTheme.colors
     var items by remember { mutableStateOf<List<ChatSummary>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf("") }
     var tick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            tick++
-            delay(3000)
-        }
-    }
+    LaunchedEffect(Unit) { while (true) { tick++; delay(3000) } }
     LaunchedEffect(tick) {
         try {
             items = withContext(Dispatchers.IO) { repo.myConversations() }
             error = null
-        } catch (e: Exception) {
-            error = e.message
-        }
+        } catch (e: Exception) { error = e.message }
         loading = false
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Spacer(Modifier.height(28.dp))
+    val shown = items.filter { query.isBlank() || it.title.contains(query, true) || (it.lastMessage ?: "").contains(query, true) }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
+        Spacer(Modifier.height(24.dp))
         TopBar(
-            title = "Chats",
-            trailing = { TextButton(onClick = onNewChat) { Text("New chat", color = Cyan) } },
+            title = "PulseChat",
+            trailing = {
+                IconButton(onClick = onNewChat) { Icon(Icons.Filled.Add, contentDescription = "New chat", tint = c.primary) }
+            },
+        )
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = { Text("Search chats") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
-        error?.let { Text(it, color = Red, style = MaterialTheme.typography.bodySmall) }
+        error?.let { Text(it, color = c.danger, style = MaterialTheme.typography.bodySmall) }
         when {
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            items.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No chats yet.\nTap 'New chat' to start one.", color = TextDim)
+            shown.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(if (query.isBlank()) "No chats yet.\nTap + to start one." else "Nothing found", color = c.dim)
             }
             else -> LazyColumn {
-                items(items) { s ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(Surface1)
-                            .clickable {
-                                onOpenChat(
-                                    ChatTarget(s.conversation.id, s.title, s.other, s.conversation.isGroup)
-                                )
+                items(shown, key = { it.conversation.id }) { s ->
+                    RowItem(onClick = { onOpenChat(ChatTarget(s.conversation.id, s.title, s.other, s.conversation.isGroup)) }) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Avatar(s.other, size = 50, showOnline = !s.conversation.isGroup)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(s.title, color = c.text, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                Text(s.lastMessage ?: "No messages yet", color = c.dim, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                             }
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Avatar(s.other, size = 48, showOnline = !s.conversation.isGroup)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(s.title, color = TextMain, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                            Text(
-                                s.lastMessage ?: "No messages yet",
-                                color = TextDim,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                            )
+                            Text(shortTime(s.lastAt), color = c.dim, style = MaterialTheme.typography.bodySmall)
                         }
-                        Text(shortTime(s.lastAt), color = TextDim, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -168,6 +175,7 @@ fun ChatListScreen(repo: Repo, onOpenChat: (ChatTarget) -> Unit, onNewChat: () -
 
 @Composable
 fun NewChatScreen(repo: Repo, onOpenChat: (ChatTarget) -> Unit, onBack: () -> Unit) {
+    val c = AppTheme.colors
     val scope = rememberCoroutineScope()
     var friends by remember { mutableStateOf<List<Profile>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -177,33 +185,18 @@ fun NewChatScreen(repo: Repo, onOpenChat: (ChatTarget) -> Unit, onBack: () -> Un
     var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        try {
-            friends = withContext(Dispatchers.IO) { repo.friends() }
-        } catch (e: Exception) {
-            error = e.message
-        }
+        try { friends = withContext(Dispatchers.IO) { repo.friends() } } catch (e: Exception) { error = e.message }
         loading = false
     }
 
-    fun openDirect(p: Profile) {
-        scope.launch {
-            try {
-                val cid = withContext(Dispatchers.IO) { repo.openDirect(p.id) }
-                onOpenChat(ChatTarget(cid, p.handle, p, false))
-            } catch (e: Exception) {
-                error = e.message
-            }
-        }
-    }
-
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Spacer(Modifier.height(28.dp))
+    Column(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
+        Spacer(Modifier.height(24.dp))
         TopBar(
             title = if (groupMode) "New group" else "New chat",
             onBack = onBack,
             trailing = {
-                TextButton(onClick = { groupMode = !groupMode; selected = emptySet() }) {
-                    Text(if (groupMode) "Direct" else "Group", color = Cyan)
+                IconButton(onClick = { groupMode = !groupMode; selected = emptySet() }) {
+                    Icon(Icons.Filled.Group, contentDescription = "Group", tint = c.primary)
                 }
             },
         )
@@ -216,40 +209,37 @@ fun NewChatScreen(repo: Repo, onOpenChat: (ChatTarget) -> Unit, onBack: () -> Un
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(8.dp))
-            Text("Pick members (${selected.size})", color = TextDim, style = MaterialTheme.typography.bodySmall)
         }
-        error?.let { Text(it, color = Red, style = MaterialTheme.typography.bodySmall) }
-        Spacer(Modifier.height(8.dp))
+        error?.let { Text(it, color = c.danger, style = MaterialTheme.typography.bodySmall) }
         if (loading) {
             CircularProgressIndicator()
         } else if (friends.isEmpty()) {
-            Text("No friends yet. Add friends from the Friends tab.", color = TextDim)
+            Spacer(Modifier.height(20.dp))
+            Text("No friends yet — Friends tab se add karo.", color = c.dim)
         } else {
             LazyColumn(Modifier.weight(1f)) {
-                items(friends) { p ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(if (selected.contains(p.id)) Surface2 else Surface1)
-                            .clickable {
-                                if (groupMode) {
-                                    selected = if (selected.contains(p.id)) selected - p.id else selected + p.id
-                                } else {
-                                    openDirect(p)
-                                }
+                items(friends, key = { it.id }) { p ->
+                    RowItem(onClick = {
+                        if (groupMode) {
+                            selected = if (selected.contains(p.id)) selected - p.id else selected + p.id
+                        } else {
+                            scope.launch {
+                                try {
+                                    val cid = withContext(Dispatchers.IO) { repo.openDirect(p.id) }
+                                    onOpenChat(ChatTarget(cid, p.handle, p, false))
+                                } catch (e: Exception) { error = e.message }
                             }
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Avatar(p, size = 44, showOnline = true)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(p.handle, color = TextMain, fontWeight = FontWeight.Medium)
-                            Text(presenceText(p), color = TextDim, style = MaterialTheme.typography.bodySmall)
                         }
-                        if (groupMode && selected.contains(p.id)) Text("OK", color = Green, fontWeight = FontWeight.Bold)
+                    }) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Avatar(p, size = 46, showOnline = true)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(p.handle, color = c.text, fontWeight = FontWeight.Medium)
+                                Text(presenceText(p), color = c.dim, style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (groupMode && selected.contains(p.id)) Text("OK", color = c.ok, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -258,42 +248,16 @@ fun NewChatScreen(repo: Repo, onOpenChat: (ChatTarget) -> Unit, onBack: () -> Un
                     onClick = {
                         scope.launch {
                             try {
-                                val cid = withContext(Dispatchers.IO) {
-                                    repo.createGroup(groupTitle.ifBlank { "Group" }, selected.toList())
-                                }
+                                val cid = withContext(Dispatchers.IO) { repo.createGroup(groupTitle.ifBlank { "Group" }, selected.toList()) }
                                 onOpenChat(ChatTarget(cid, groupTitle.ifBlank { "Group" }, null, true))
-                            } catch (e: Exception) {
-                                error = e.message
-                            }
+                            } catch (e: Exception) { error = e.message }
                         }
                     },
                     enabled = selected.isNotEmpty(),
-                    colors = ButtonDefaults.buttonColors(containerColor = Green),
+                    colors = ButtonDefaults.buttonColors(containerColor = c.ok),
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Create group") }
             }
-        }
-    }
-}
-
-@Composable
-fun ProfileScreen(profile: Profile?, onSignOut: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(20.dp)) {
-        Spacer(Modifier.height(30.dp))
-        TopBar("Profile")
-        Spacer(Modifier.height(20.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Avatar(profile, size = 72, showOnline = true)
-            Spacer(Modifier.width(16.dp))
-            Column {
-                Text(profile?.handle ?: "-", color = TextMain, style = MaterialTheme.typography.titleLarge)
-                Text(profile?.displayName ?: "", color = TextDim)
-                Text(presenceText(profile), color = Green, style = MaterialTheme.typography.bodySmall)
-            }
-        }
-        Spacer(Modifier.height(30.dp))
-        Button(onClick = onSignOut, colors = ButtonDefaults.buttonColors(containerColor = Red)) {
-            Text("Sign out")
         }
     }
 }

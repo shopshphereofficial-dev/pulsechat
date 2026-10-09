@@ -233,50 +233,23 @@ class Repo(private val session: Session) {
     }
 
     fun openDirect(otherId: String): String {
-        val me = uid()
-        val mine = JSONArray(Api.get("conversation_members?user_id=eq.$me&select=conversation_id", token()))
-        val myConvIds = (0 until mine.length())
-            .map { mine.getJSONObject(it).getString("conversation_id") }.distinct()
-        if (myConvIds.isNotEmpty()) {
-            val inList = myConvIds.joinToString(",")
-            val direct = JSONArray(Api.get("conversations?id=in.($inList)&is_group=eq.false&select=id", token()))
-            val directIds = (0 until direct.length()).map { direct.getJSONObject(it).getString("id") }
-            if (directIds.isNotEmpty()) {
-                val inList2 = directIds.joinToString(",")
-                val mem = JSONArray(
-                    Api.get("conversation_members?conversation_id=in.($inList2)&select=conversation_id,user_id", token())
-                )
-                val byConv = HashMap<String, MutableList<String>>()
-                for (i in 0 until mem.length()) {
-                    val o = mem.getJSONObject(i)
-                    byConv.getOrPut(o.getString("conversation_id")) { mutableListOf() }.add(o.getString("user_id"))
-                }
-                for ((cid, members) in byConv) {
-                    if (members.size == 2 && members.contains(otherId)) return cid
-                }
-            }
-        }
-        val created = JSONArray(
-            Api.post("conversations", token(), JSONObject().put("is_group", false).put("created_by", me))
-        )
-        val cid = created.getJSONObject(0).getString("id")
-        addMember(cid, me)
-        addMember(cid, otherId)
-        return cid
+        val res = Api.rpc("start_direct", token(), JSONObject().put("other", otherId))
+        return res.trim().trim('"')
     }
 
     fun createGroup(title: String, memberIds: List<String>): String {
-        val me = uid()
-        val created = JSONArray(
-            Api.post(
-                "conversations", token(),
-                JSONObject().put("is_group", true).put("title", title).put("created_by", me),
-            )
+        val arr = JSONArray()
+        memberIds.distinct().forEach { arr.put(it) }
+        val res = Api.rpc(
+            "create_group", token(),
+            JSONObject().put("grp_title", title).put("members", arr),
         )
-        val cid = created.getJSONObject(0).getString("id")
-        addMember(cid, me)
-        memberIds.distinct().forEach { addMember(cid, it) }
-        return cid
+        return res.trim().trim('"')
+    }
+
+    fun usernameTaken(name: String): Boolean {
+        val res = Api.rpc("username_taken", token(), JSONObject().put("name", name.lowercase()))
+        return res.trim() == "true"
     }
 
     private fun addMember(conversationId: String, userId: String) {

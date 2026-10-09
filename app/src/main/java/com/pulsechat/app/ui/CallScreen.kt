@@ -28,13 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.pulsechat.app.data.CallInfo
 import com.pulsechat.app.data.Profile
 import com.pulsechat.app.data.Repo
-import com.pulsechat.app.ui.theme.Bg
-import com.pulsechat.app.ui.theme.Cyan
-import com.pulsechat.app.ui.theme.Green
-import com.pulsechat.app.ui.theme.Red
-import com.pulsechat.app.ui.theme.Surface1
-import com.pulsechat.app.ui.theme.TextDim
-import com.pulsechat.app.ui.theme.TextMain
+import com.pulsechat.app.ui.theme.AppTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -47,94 +41,68 @@ fun CallScreen(
     isCaller: Boolean,
     onClose: () -> Unit,
 ) {
+    val c = AppTheme.colors
     var status by remember { mutableStateOf(call.status) }
     var seconds by remember { mutableStateOf(0) }
     var tick by remember { mutableStateOf(0) }
-    var ended by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            tick++
-            delay(1500)
-        }
-    }
+    LaunchedEffect(Unit) { while (true) { tick++; delay(1500) } }
     LaunchedEffect(tick) {
-        val c = runCatching { withContext(Dispatchers.IO) { repo.getCall(call.id) } }.getOrNull()
-        if (c != null) {
-            status = c.status
-            if (c.status == "declined" || c.status == "ended") {
-                ended = true
-                onClose()
-            }
+        val cl = runCatching { withContext(Dispatchers.IO) { repo.getCall(call.id) } }.getOrNull()
+        if (cl != null) {
+            status = cl.status
+            if (cl.status == "declined" || cl.status == "ended") onClose()
         }
     }
     LaunchedEffect(status) {
         if (status == "accepted") {
             seconds = 0
-            while (true) {
-                delay(1000)
-                seconds++
-            }
+            while (true) { delay(1000); seconds++ }
         }
     }
 
-    val mm = seconds / 60
-    val ss = seconds % 60
-    val timer = String.format("%02d:%02d", mm, ss)
+    val timer = String.format("%02d:%02d", seconds / 60, seconds % 60)
 
-    Box(Modifier.fillMaxSize().background(Bg), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize().background(c.bg), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Avatar(other, size = 120)
             Spacer(Modifier.height(18.dp))
-            Text(other?.handle ?: "Unknown", color = TextMain, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(other?.handle ?: "Unknown", color = c.text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Text(
                 when {
-                    ended -> "Call ended"
                     status == "accepted" -> timer
                     isCaller -> "Ringing…"
                     else -> "Incoming ${call.kind} call"
                 },
-                color = if (status == "accepted") Green else TextDim,
+                color = if (status == "accepted") c.ok else c.dim,
             )
             Spacer(Modifier.height(40.dp))
-
             if (status == "ringing" && !isCaller) {
                 Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                     Button(
-                        onClick = {
-                            repo.setCallStatus(call.id, "accepted")
-                            status = "accepted"
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Green),
+                        onClick = { repo.setCallStatus(call.id, "accepted"); status = "accepted" },
+                        colors = ButtonDefaults.buttonColors(containerColor = c.ok),
                         modifier = Modifier.clip(RoundedCornerShape(30.dp)),
                     ) { Text("Accept") }
                     Button(
-                        onClick = {
-                            repo.setCallStatus(call.id, "declined")
-                            onClose()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Red),
+                        onClick = { repo.setCallStatus(call.id, "declined"); onClose() },
+                        colors = ButtonDefaults.buttonColors(containerColor = c.danger),
                         modifier = Modifier.clip(RoundedCornerShape(30.dp)),
                     ) { Text("Decline") }
                 }
             } else {
                 Button(
-                    onClick = {
-                        repo.setCallStatus(call.id, "ended")
-                        onClose()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Red),
+                    onClick = { repo.setCallStatus(call.id, "ended"); onClose() },
+                    colors = ButtonDefaults.buttonColors(containerColor = c.danger),
                     modifier = Modifier.clip(RoundedCornerShape(30.dp)),
                 ) { Text("End call") }
             }
-
             Spacer(Modifier.height(28.dp))
-            Box(Modifier.clip(RoundedCornerShape(14.dp)).background(Surface1).padding(14.dp)) {
+            Box(Modifier.clip(RoundedCornerShape(14.dp)).background(c.surface).padding(14.dp)) {
                 Text(
-                    "Voice/video ka poora call flow (ring, accept, decline, end) chal raha hai.\n" +
-                        "Asli audio/video (WebRTC) agle step mein.",
-                    color = TextDim,
+                    "Call flow (ring, accept, decline, end) chal raha hai.\nAsli audio/video (WebRTC) next step mein.",
+                    color = c.dim,
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

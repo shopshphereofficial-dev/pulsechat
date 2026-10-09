@@ -52,6 +52,21 @@ object Api {
         }
     }
 
+    /** calls a Postgres function via PostgREST /rpc */
+    fun rpc(name: String, token: String, body: JSONObject): String {
+        val req = Request.Builder()
+            .url("${Supabase.URL}/rest/v1/rpc/$name")
+            .addHeader("apikey", Supabase.ANON_KEY)
+            .addHeader("Authorization", "Bearer $token")
+            .post(body.toString().toRequestBody(JSON))
+            .build()
+        client.newCall(req).execute().use { resp ->
+            val text = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw RuntimeException(errorMessage(text, resp.code))
+            return text
+        }
+    }
+
     fun get(path: String, token: String): String = rest("GET", path, token, null, null)
 
     fun post(path: String, token: String, body: JSONObject): String =
