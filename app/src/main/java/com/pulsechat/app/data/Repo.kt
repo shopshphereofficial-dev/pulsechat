@@ -167,13 +167,22 @@ class Repo(private val session: Session) {
     fun myConversations(): List<ChatSummary> {
         val me = uid()
         val memberRows = JSONArray(
-            Api.get("conversation_members?user_id=eq.$me&select=conversation_id,last_read_at", token())
+            Api.get(
+                "conversation_members?user_id=eq.$me&select=conversation_id,last_read_at,pinned,archived,muted",
+                token()
+            )
         )
         val myRead = HashMap<String, String>()
+        val myPinned = HashMap<String, Boolean>()
+        val myArchived = HashMap<String, Boolean>()
+        val myMuted = HashMap<String, Boolean>()
         val convIds = (0 until memberRows.length()).map {
             val o = memberRows.getJSONObject(it)
             val cid = o.getString("conversation_id")
             myRead[cid] = o.optString("last_read_at", "")
+            myPinned[cid] = o.optBoolean("pinned", false)
+            myArchived[cid] = o.optBoolean("archived", false)
+            myMuted[cid] = o.optBoolean("muted", false)
             cid
         }.distinct()
         if (convIds.isEmpty()) return emptyList()
@@ -237,8 +246,11 @@ class Repo(private val session: Session) {
                 lastAt = last?.optString("created_at"),
                 other = other,
                 unread = unread[c.id] ?: 0,
+                pinned = myPinned[c.id] ?: false,
+                muted = myMuted[c.id] ?: false,
+                archived = myArchived[c.id] ?: false,
             )
-        }.sortedByDescending { it.lastAt ?: "" }
+        }.sortedWith(compareByDescending<ChatSummary> { it.pinned }.thenByDescending { it.lastAt ?: "" })
     }
 
     fun messages(conversationId: String): List<Message> {
@@ -485,5 +497,52 @@ class Repo(private val session: Session) {
 
     fun renameGroup(conversationId: String, title: String) {
         Api.patch("conversations?id=eq.$conversationId", token(), JSONObject().put("title", title))
+    }
+
+    // ---------------- per-chat settings ----------------
+
+    private fun setMemberFlag(conversationId: String, field: String, value: Boolean) {
+        try {
+            Api.patch(
+                "conversation_members?conversation_id=eq.$conversationId&user_id=eq.${uid()}", token(),
+                JSONObject().put(field, value),
+            )
+        } catch (_: Exception) {
+        }
+    }
+
+    fun setPinned(conversationId: String, v: Boolean) = setMemberFlag(conversationId, "pinned", v)
+    fun setArchived(conversationId: String, v: Boolean) = setMemberFlag(conversationId, "archived", v)
+    fun setMuted(conversationId: String, v: Boolean) = setMemberFlag(conversationId, "muted", v)
+
+    fun deleteChatForMe(conversationId: String) {
+        try {
+            Api.delete("conversation_members?conversation_id=eq.$conversationId&user_id=eq.${uid()}", token())
+        } catch (_: Exception) {
+        }
+    }
+
+    fun clearChatForMe(conversationId: String) {
+        // removes my membership; history stays for the other member
+        deleteChatForMe(conversationId)
+    }
+
+    // ---------------- avatar ----------------
+
+    fun uploadAvatar(bytes: ByteArray, ext: String, mime: String): String {
+        val path = "${uid()}/avatar_${System.currentTimeMillis()}.$ext"
+        val url = Api.upload(path, token(), bytes, mime)
+        Api.patch("profiles?id=eq.${uid()}", token(), JSONObject().put("avatar_url", url))
+        return url
+    }
+
+    fun blockedUsers(): List<Profile> {
+        return try {
+            val arr = JSONArray(Api.get("blocks?blocker_id=eq.${uid()}&select=blocked_id", token()))
+            val ids = (0 until arr.length()).map { arr.getJSONObject(it).getString("blocked_id") }
+            ids.mapNotNull { profileById(it) }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 }

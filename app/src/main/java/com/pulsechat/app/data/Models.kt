@@ -88,6 +88,7 @@ data class Message(
     val hasMedia: Boolean get() = !mediaUrl.isNullOrEmpty()
     val isImage: Boolean get() = mediaType?.startsWith("image") == true
     val isVideo: Boolean get() = mediaType?.startsWith("video") == true
+    val isVoice: Boolean get() = mediaType?.startsWith("audio") == true
 
     companion object {
         fun from(o: JSONObject): Message = Message(
@@ -114,6 +115,9 @@ data class ChatSummary(
     val lastAt: String?,
     val other: Profile?,
     val unread: Int,
+    val pinned: Boolean,
+    val muted: Boolean,
+    val archived: Boolean,
 )
 
 data class CallInfo(

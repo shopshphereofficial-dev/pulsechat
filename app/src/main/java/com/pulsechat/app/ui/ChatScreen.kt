@@ -100,6 +100,12 @@ fun ChatScreen(
     var searchResults by remember { mutableStateOf<List<Message>>(emptyList()) }
     var editTarget by remember { mutableStateOf<Message?>(null) }
     var forwardMsg by remember { mutableStateOf<Message?>(null) }
+    var attachMenu by remember { mutableStateOf(false) }
+    var recording by remember { mutableStateOf(false) }
+    var recorder by remember { mutableStateOf<android.media.MediaRecorder?>(null) }
+    var voiceFile by remember { mutableStateOf<java.io.File?>(null) }
+    var playingId by remember { mutableStateOf<String?>(null) }
+    var player by remember { mutableStateOf<android.media.MediaPlayer?>(null) }
     var conversations by remember { mutableStateOf<List<com.pulsechat.app.data.ChatSummary>>(emptyList()) }
     val listState = rememberLazyListState()
 
@@ -122,7 +128,7 @@ fun ChatScreen(
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) { repo.markRead(target.conversationId) }
-        while (true) { tick++; delay(2000) }
+        while (true) { tick++; delay(1500) }
     }
     LaunchedEffect(tick) { refresh() }
     LaunchedEffect(messages.size) {
@@ -138,6 +144,65 @@ fun ChatScreen(
             out.add(m)
         }
         out
+    }
+
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val name = com.pulsechat.app.util.FileUtils.queryName(context, uri)
+                    val bytes = withContext(Dispatchers.IO) { ImageUtil.readBytes(context, uri) } ?: return@launch
+                    val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
+                    val ext = name.substringAfterLast('.', "bin")
+                    val url = withContext(Dispatchers.IO) { repo.uploadMedia(bytes, ext, mime) }
+                    withContext(Dispatchers.IO) {
+                        repo.sendMedia(target.conversationId, url, mime, name, replyTo = replyTo?.id)
+                    }
+                    replyTo = null
+                    refresh()
+                } catch (e: Exception) { error = e.message }
+            }
+        }
+    }
+
+    val micPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            try {
+                val f = java.io.File(context.cacheDir, "voice_${System.currentTimeMillis()}.m4a")
+                val r = if (android.os.Build.VERSION.SDK_INT >= 31) android.media.MediaRecorder(context) else android.media.MediaRecorder()
+                r.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
+                r.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
+                r.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
+                r.setOutputFile(f.absolutePath)
+                r.prepare()
+                r.start()
+                recorder = r
+                voiceFile = f
+                recording = true
+            } catch (e: Exception) { error = "Recording failed: ${e.message}" }
+        }
+    }
+
+    fun stopAndSendVoice() {
+        val r = recorder ?: return
+        val f = voiceFile
+        try { r.stop() } catch (_: Exception) {}
+        try { r.release() } catch (_: Exception) {}
+        recorder = null
+        recording = false
+        if (f != null && f.exists()) {
+            scope.launch {
+                try {
+                    val bytes = withContext(Dispatchers.IO) { f.readBytes() }
+                    val url = withContext(Dispatchers.IO) { repo.uploadMedia(bytes, "m4a", "audio/mp4") }
+                    withContext(Dispatchers.IO) {
+                        repo.sendMedia(target.conversationId, url, "audio/mp4", "Voice note", replyTo = replyTo?.id)
+                    }
+                    replyTo = null
+                    refresh()
+                } catch (e: Exception) { error = e.message }
+            }
+        }
     }
 
     fun sendMedia(uri: Uri, low: Boolean) {
@@ -269,6 +334,32 @@ fun ChatScreen(
                                     model = m.mediaUrl, contentDescription = null, contentScale = ContentScale.Crop,
                                     modifier = Modifier.size(200.dp).clip(RoundedCornerShape(12.dp)),
                                 )
+                            } else if (m.hasMedia && m.isVoice) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(if (playingId == m.id) "\u23F8" else "\u25B6", color = if (mine) c.onBubble else c.primary, style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.clickable {
+                                            try {
+                                                if (playingId == m.id) { player?.stop(); player?.release(); player = null; playingId = null }
+                                                else {
+                                                    player?.release()
+                                                    val mp = android.media.MediaPlayer()
+                                                    mp.setDataSource(m.mediaUrl)
+                                                    mp.setOnPreparedListener { it.start() }
+                                                    mp.setOnCompletionListener { playingId = null }
+                                                    mp.prepareAsync()
+                                                    player = mp
+                                                    playingId = m.id
+                                                }
+                                            } catch (_: Exception) {}
+                                        }.padding(4.dp))
+                                    Text("Voice note", color = if (mine) c.onBubble else c.text)
+                                }
+                            } else if (m.hasMedia) {
+                                Text(
+                                    (if (m.isVideo) "\uD83C\uDFA5 " else "\uD83D\uDCC4 ") + (m.mediaName ?: "Attachment"),
+                                    color = if (mine) c.onBubble else c.text,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
                             }
                             m.content?.takeIf { it.isNotBlank() }?.let { Text(it, color = if (mine) c.onBubble else c.text) }
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -297,7 +388,7 @@ fun ChatScreen(
         }
 
         Row(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { picker.launch("image/*") }) { Icon(Icons.Filled.AttachFile, "Attach", tint = c.primary) }
+            IconButton(onClick = { attachMenu = true }) { Icon(Icons.Filled.AttachFile, "Attach", tint = c.primary) }
             OutlinedTextField(
                 value = text,
                 onValueChange = {
@@ -322,6 +413,47 @@ fun ChatScreen(
                     }
                 }
             }) { Icon(Icons.Filled.Send, "Send", tint = c.primary) }
+        }
+    }
+
+    if (attachMenu) {
+        AlertDialog(
+            onDismissRequest = { attachMenu = false },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { attachMenu = false }) { Text("Close") } },
+            title = { Text("Attach") },
+            text = {
+                Column {
+                    TextButton(onClick = { attachMenu = false; picker.launch("image/*") }) { Text("Photo", color = c.primary) }
+                    TextButton(onClick = { attachMenu = false; filePicker.launch(arrayOf("video/*")) }) { Text("Video", color = c.primary) }
+                    TextButton(onClick = { attachMenu = false; filePicker.launch(arrayOf("*/*")) }) { Text("Document", color = c.primary) }
+                    TextButton(onClick = {
+                        attachMenu = false
+                        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                            micPerm.launch(android.Manifest.permission.RECORD_AUDIO)
+                        } else {
+                            micPerm.launch(android.Manifest.permission.RECORD_AUDIO)
+                        }
+                    }) { Text("Voice note", color = c.accent) }
+                }
+            },
+        )
+    }
+
+    if (recording) {
+        Row(
+            Modifier.fillMaxWidth().background(c.danger.copy(alpha = 0.15f)).padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("\u25CF Recording…", color = c.danger, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Button(onClick = { stopAndSendVoice() }, colors = ButtonDefaults.buttonColors(containerColor = c.ok)) { Text("Stop & send") }
+            Spacer(Modifier.width(8.dp))
+            TextButton(onClick = {
+                try { recorder?.stop() } catch (_: Exception) {}
+                try { recorder?.release() } catch (_: Exception) {}
+                recorder = null; recording = false; voiceFile = null
+            }) { Text("Cancel", color = c.dim) }
         }
     }
 

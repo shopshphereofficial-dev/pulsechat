@@ -36,6 +36,7 @@ import com.pulsechat.app.data.Repo
 import com.pulsechat.app.data.Session
 import com.pulsechat.app.ui.theme.AppTheme
 import com.pulsechat.app.ui.theme.PulseChatTheme
+import com.pulsechat.app.util.Notify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -75,8 +76,21 @@ fun PulseChatApp() {
         } else stage = Stage.LOGIN
     }
 
+    val notified = remember { HashMap<String, Int>() }
+
+    // ask for notification permission once we are logged in
+    val notifPerm = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { }
+
     LaunchedEffect(stage) {
         if (stage != Stage.HOME) return@LaunchedEffect
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!granted) notifPerm.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         while (true) {
             withContext(Dispatchers.IO) { repo.heartbeat() }
             if (activeCall == null) {
@@ -85,9 +99,21 @@ fun PulseChatApp() {
                     callOther = runCatching { withContext(Dispatchers.IO) { repo.profileById(cl.callerId) } }.getOrNull()
                     callIsCaller = false
                     activeCall = cl
+                } else {
+                    // new-message notifications (only while the app is running)
+                    val convs = runCatching { withContext(Dispatchers.IO) { repo.myConversations() } }.getOrNull()
+                    if (convs != null) {
+                        for (cv in convs) {
+                            val openThis = openChat?.conversationId == cv.conversation.id
+                            if (!openThis && cv.unread > (notified[cv.conversation.id] ?: 0)) {
+                                Notify.message(context, cv.title, cv.lastMessage ?: "New message", cv.conversation.id.hashCode())
+                            }
+                            notified[cv.conversation.id] = cv.unread
+                        }
+                    }
                 }
             }
-            delay(15000)
+            delay(12000)
         }
     }
 

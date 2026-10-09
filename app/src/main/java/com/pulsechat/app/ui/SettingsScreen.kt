@@ -40,6 +40,7 @@ import com.pulsechat.app.data.Prefs
 import com.pulsechat.app.data.Profile
 import com.pulsechat.app.data.Repo
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -61,7 +62,26 @@ fun SettingsScreen(
     var themeMode by remember { mutableStateOf(prefs.themeMode) }
     var wallpaper by remember { mutableStateOf(prefs.wallpaper) }
     var editing by remember { mutableStateOf(false) }
+    var blocked by remember { mutableStateOf<List<Profile>>(emptyList()) }
+    var uploadError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val photoPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val bytes = withContext(Dispatchers.IO) { com.pulsechat.app.util.ImageUtil.compress(context, uri, 512, 80) }
+                    if (bytes != null) {
+                        withContext(Dispatchers.IO) { repo.uploadAvatar(bytes, "jpg", "image/jpeg") }
+                        onProfileSaved()
+                    }
+                } catch (e: Exception) { uploadError = e.message }
+            }
+        }
+    }
+    LaunchedEffect(Unit) { blocked = withContext(Dispatchers.IO) { repo.blockedUsers() } }
 
     if (editing) {
         EditProfileScreen(profile, repo, onDone = { editing = false; onProfileSaved() })
@@ -119,6 +139,27 @@ fun SettingsScreen(
                         .border(if (wallpaper == i) 3.dp else 1.dp, if (wallpaper == i) c.primary else c.surface2, CircleShape)
                         .clickable { wallpaper = i; prefs.wallpaper = i; onWallpaperChanged(i) },
                 )
+            }
+        }
+
+        SectionHeader("Profile photo")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Avatar(profile, size = 56)
+            Spacer(Modifier.width(12.dp))
+            Button(
+                onClick = { photoPicker.launch("image/*") },
+                colors = ButtonDefaults.buttonColors(containerColor = c.primary),
+            ) { Text("Change photo") }
+        }
+
+        SectionHeader("Blocked users")
+        if (blocked.isEmpty()) Text("No blocked users", color = c.dim, style = MaterialTheme.typography.bodySmall)
+        else blocked.forEach { b ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                Avatar(b, size = 36)
+                Spacer(Modifier.width(10.dp))
+                Text(b.handle, color = c.text, modifier = Modifier.weight(1f))
+                TextButton(onClick = { scope.launch { withContext(Dispatchers.IO) { repo.unblock(b.id) }; blocked = withContext(Dispatchers.IO) { repo.blockedUsers() } } }) { Text("Unblock", color = c.ok) }
             }
         }
 

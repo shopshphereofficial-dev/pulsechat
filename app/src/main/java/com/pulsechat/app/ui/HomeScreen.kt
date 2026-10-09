@@ -2,6 +2,8 @@ package com.pulsechat.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -115,40 +117,54 @@ fun HomeScreen(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ChatListScreen(repo: Repo, onOpenChat: (ChatTarget) -> Unit, onNewChat: () -> Unit) {
     val c = AppTheme.colors
+    val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<ChatSummary>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
+    var showArchived by remember { mutableStateOf(false) }
+    var menuFor by remember { mutableStateOf<ChatSummary?>(null) }
     var tick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(Unit) { while (true) { tick++; delay(3000) } }
-    LaunchedEffect(tick) {
-        try {
-            items = withContext(Dispatchers.IO) { repo.myConversations() }
-            error = null
-        } catch (e: Exception) { error = e.message }
-        loading = false
+    fun reload() {
+        scope.launch {
+            try {
+                items = withContext(Dispatchers.IO) { repo.myConversations() }
+                error = null
+            } catch (e: Exception) { error = e.message }
+            loading = false
+        }
     }
 
-    val shown = items.filter { query.isBlank() || it.title.contains(query, true) || (it.lastMessage ?: "").contains(query, true) }
+    LaunchedEffect(Unit) { while (true) { tick++; delay(3000) } }
+    LaunchedEffect(tick) { reload() }
+
+    val archivedCount = items.count { it.archived }
+    val shown = items
+        .filter { if (showArchived) it.archived else !it.archived }
+        .filter { query.isBlank() || it.title.contains(query, true) || (it.lastMessage ?: "").contains(query, true) }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
         Spacer(Modifier.height(24.dp))
         TopBar(
             title = "PulseChat",
+            subtitle = if (showArchived) "Archived chats" else null,
             trailing = {
+                if (archivedCount > 0 || showArchived) {
+                    TextButton(onClick = { showArchived = !showArchived }) {
+                        Text(if (showArchived) "All" else "Archived ($archivedCount)", color = c.dim)
+                    }
+                }
                 IconButton(onClick = onNewChat) { Icon(Icons.Filled.Add, contentDescription = "New chat", tint = c.primary) }
             },
         )
         OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            placeholder = { Text("Search chats") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            value = query, onValueChange = { query = it },
+            placeholder = { Text("Search chats") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
         error?.let { Text(it, color = c.danger, style = MaterialTheme.typography.bodySmall) }
@@ -159,12 +175,27 @@ fun ChatListScreen(repo: Repo, onOpenChat: (ChatTarget) -> Unit, onNewChat: () -
             }
             else -> LazyColumn {
                 items(shown, key = { it.conversation.id }) { s ->
-                    RowItem(onClick = { onOpenChat(ChatTarget(s.conversation.id, s.title, s.other, s.conversation.isGroup)) }) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                            .background(c.surface)
+                            .combinedClickable(
+                                onClick = { onOpenChat(ChatTarget(s.conversation.id, s.title, s.other, s.conversation.isGroup)) },
+                                onLongClick = { menuFor = s },
+                            )
+                            .padding(12.dp),
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Avatar(s.other, size = 50, showOnline = !s.conversation.isGroup)
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(s.title, color = c.text, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (s.pinned) Text("\uD83D\uDCCC ", color = c.primary, style = MaterialTheme.typography.labelSmall)
+                                    Text(s.title, color = c.text, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                    if (s.muted) Text("  muted", color = c.dim, style = MaterialTheme.typography.labelSmall)
+                                }
                                 Text(s.lastMessage ?: "No messages yet", color = c.dim, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                             }
                             Column(horizontalAlignment = Alignment.End) {
@@ -182,6 +213,31 @@ fun ChatListScreen(repo: Repo, onOpenChat: (ChatTarget) -> Unit, onNewChat: () -
                 }
             }
         }
+    }
+
+    menuFor?.let { s ->
+        AlertDialog(
+            onDismissRequest = { menuFor = null },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { menuFor = null }) { Text("Close") } },
+            title = { Text(s.title) },
+            text = {
+                Column {
+                    TextButton(onClick = { menuFor = null; scope.launch { withContext(Dispatchers.IO) { repo.setPinned(s.conversation.id, !s.pinned) }; reload() } }) {
+                        Text(if (s.pinned) "Unpin" else "Pin", color = c.primary)
+                    }
+                    TextButton(onClick = { menuFor = null; scope.launch { withContext(Dispatchers.IO) { repo.setMuted(s.conversation.id, !s.muted) }; reload() } }) {
+                        Text(if (s.muted) "Unmute" else "Mute", color = c.primary)
+                    }
+                    TextButton(onClick = { menuFor = null; scope.launch { withContext(Dispatchers.IO) { repo.setArchived(s.conversation.id, !s.archived) }; reload() } }) {
+                        Text(if (s.archived) "Unarchive" else "Archive", color = c.accent)
+                    }
+                    TextButton(onClick = { menuFor = null; scope.launch { withContext(Dispatchers.IO) { repo.deleteChatForMe(s.conversation.id) }; reload() } }) {
+                        Text("Delete chat", color = c.danger)
+                    }
+                }
+            },
+        )
     }
 }
 
