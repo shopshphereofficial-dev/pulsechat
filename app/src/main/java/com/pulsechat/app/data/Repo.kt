@@ -35,7 +35,10 @@ class Repo(private val session: Session) {
     }
 
     fun searchUsers(query: String): List<Profile> {
+        // keep only characters safe for a PostgREST "ilike" pattern
         val q = query.trim()
+            .filter { it.isLetterOrDigit() || it == '_' || it == '.' || it == '-' }
+            .take(30)
         if (q.isEmpty()) return emptyList()
         val text = Api.get("profiles?username=ilike.*$q*&select=*&limit=25", token())
         val arr = JSONArray(text)

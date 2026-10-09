@@ -48,3 +48,32 @@ minSdk **24 (Android 7.0)** — covers the large majority of phones in use today
 
 ## Build
 Push to `main`; download the `pulsechat-apk` artifact from the workflow run.
+
+## Google sign-in setup — the exact steps
+
+Error 10 ("Developer console is not set up correctly") means Google could not
+match your app's package name + signing certificate. Do this:
+
+### 1. Add an **Android** OAuth client (same Google Cloud project)
+In **console.cloud.google.com** → **APIs & Services → Credentials →
+Create credentials → OAuth client ID → Android**:
+- **Package name**: `com.pulsechat.app`
+- **SHA-1**: `1B:1F:F3:C2:9F:F8:B8:FA:10:25:EE:40:5E:FC:70:FB:D1:66:98:49`
+
+(The APK is signed with a fixed keystore committed at `keystore/debug.keystore`,
+so this SHA-1 never changes between builds.)
+
+### 2. Add / keep the **Web** OAuth client
+Create (or reuse) a **Web application** client in the same project, with
+Authorized redirect URI:
+`https://vildgvfcyhawojpmtdbe.supabase.co/auth/v1/callback`
+
+### 3. Configure Supabase
+**Authentication → Providers → Google** → Enable:
+- **Client ID** = the **Web** client ID
+- **Client secret** = the Web client's secret (from Google Cloud → Credentials)
+- **Authorized Client IDs** = add the **Web** client ID
+
+### 4. OAuth consent screen
+Make sure **APIs & Services → OAuth consent screen** is filled in (External,
+app name, support email, developer email). Without it you also get error 10.

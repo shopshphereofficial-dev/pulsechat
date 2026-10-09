@@ -85,7 +85,7 @@ fun PulseChatApp() {
         error = null
         scope.launch {
             try {
-                val cred = withContext(Dispatchers.IO) { GoogleAuth.signIn(context) }
+                val cred = withContext(Dispatchers.Main) { GoogleAuth.signIn(context) }
                 val res = withContext(Dispatchers.IO) { Api.signInWithIdToken(cred.idToken) }
                 session.accessToken = res.getString("access_token")
                 session.refreshToken = res.getString("refresh_token")
