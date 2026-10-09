@@ -167,6 +167,11 @@ fun PulseChatApp() {
                                 prefs = prefs,
                                 onThemeChanged = { themeMode = it },
                                 onWallpaperChanged = { wallpaper = it },
+                                onProfileSaved = {
+                                    scope.launch {
+                                        profile = withContext(Dispatchers.IO) { runCatching { repo.myProfile() }.getOrNull() }
+                                    }
+                                },
                                 onOpenChat = { openChat = it },
                                 onSignOut = { signOut() },
                             )

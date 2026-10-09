@@ -67,6 +67,23 @@ object Api {
         }
     }
 
+    /** uploads bytes to Supabase Storage and returns the public URL */
+    fun upload(path: String, token: String, bytes: ByteArray, mime: String): String {
+        val req = Request.Builder()
+            .url("${Supabase.URL}/storage/v1/object/media/$path")
+            .addHeader("apikey", Supabase.ANON_KEY)
+            .addHeader("Authorization", "Bearer $token")
+            .addHeader("Content-Type", mime)
+            .addHeader("x-upsert", "true")
+            .post(bytes.toRequestBody(mime.toMediaType()))
+            .build()
+        client.newCall(req).execute().use { resp ->
+            val text = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw RuntimeException(errorMessage(text, resp.code))
+        }
+        return "${Supabase.URL}/storage/v1/object/public/media/$path"
+    }
+
     fun get(path: String, token: String): String = rest("GET", path, token, null, null)
 
     fun post(path: String, token: String, body: JSONObject): String =

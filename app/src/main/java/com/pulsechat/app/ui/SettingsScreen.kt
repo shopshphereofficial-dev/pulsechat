@@ -38,12 +38,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pulsechat.app.data.Prefs
 import com.pulsechat.app.data.Profile
+import com.pulsechat.app.data.Repo
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.pulsechat.app.ui.theme.AppTheme
 import com.pulsechat.app.ui.theme.Wallpapers
 
 @Composable
 fun SettingsScreen(
     profile: Profile?,
+    repo: Repo,
+    onProfileSaved: () -> Unit,
     prefs: Prefs,
     onThemeChanged: (Int) -> Unit,
     onWallpaperChanged: (Int) -> Unit,
@@ -52,6 +60,13 @@ fun SettingsScreen(
     val c = AppTheme.colors
     var themeMode by remember { mutableStateOf(prefs.themeMode) }
     var wallpaper by remember { mutableStateOf(prefs.wallpaper) }
+    var editing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    if (editing) {
+        EditProfileScreen(profile, repo, onDone = { editing = false; onProfileSaved() })
+        return
+    }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         Spacer(Modifier.height(24.dp))
@@ -66,6 +81,15 @@ fun SettingsScreen(
                 Text(profile?.handle ?: "", color = c.primary)
             }
         }
+
+        Spacer(Modifier.height(4.dp))
+        Button(
+            onClick = { editing = true },
+            colors = ButtonDefaults.buttonColors(containerColor = c.accent),
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Edit profile") }
+        profile?.status?.let { Spacer(Modifier.height(6.dp)); Text(it, color = c.primary) }
+        profile?.bio?.let { Spacer(Modifier.height(4.dp)); Text(it, color = c.dim, style = MaterialTheme.typography.bodySmall) }
 
         SectionHeader("Appearance")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -111,6 +135,52 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(20.dp))
         Text("PulseChat v2.2", color = c.dim, style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(40.dp))
+    }
+}
+
+
+@Composable
+fun EditProfileScreen(profile: Profile?, repo: Repo, onDone: () -> Unit) {
+    val c = AppTheme.colors
+    val scope = rememberCoroutineScope()
+    var name by remember { mutableStateOf(profile?.displayName ?: "") }
+    var status by remember { mutableStateOf(profile?.status ?: "") }
+    var bio by remember { mutableStateOf(profile?.bio ?: "") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        Spacer(Modifier.height(24.dp))
+        TopBar("Edit profile", onBack = onDone)
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Avatar(profile, size = 72)
+            Spacer(Modifier.width(14.dp))
+            Text(profile?.handle ?: "", color = c.primary, style = MaterialTheme.typography.titleMedium)
+        }
+        Spacer(Modifier.height(16.dp))
+        OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Display name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(value = status, onValueChange = { status = it.take(80) }, label = { Text("Status (about)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(value = bio, onValueChange = { bio = it.take(200) }, label = { Text("Bio") }, modifier = Modifier.fillMaxWidth(), maxLines = 4)
+        error?.let { Spacer(Modifier.height(8.dp)); Text(it, color = c.danger, style = MaterialTheme.typography.bodySmall) }
+        Spacer(Modifier.height(16.dp))
+        Button(
+            onClick = {
+                busy = true; error = null
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) { repo.updateProfile(name.trim(), bio.trim(), status.trim()) }
+                        onDone()
+                    } catch (e: Exception) { error = e.message } finally { busy = false }
+                }
+            },
+            enabled = !busy,
+            colors = ButtonDefaults.buttonColors(containerColor = c.ok),
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Save") }
         Spacer(Modifier.height(40.dp))
     }
 }

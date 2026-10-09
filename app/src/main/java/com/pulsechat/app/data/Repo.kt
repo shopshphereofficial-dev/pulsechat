@@ -33,6 +33,20 @@ class Repo(private val session: Session) {
         Api.patch("profiles?id=eq.${uid()}", token(), JSONObject().put("username", username))
     }
 
+    fun updateProfile(displayName: String?, bio: String?, status: String?) {
+        val body = JSONObject()
+        if (displayName != null) body.put("display_name", displayName)
+        if (bio != null) body.put("bio", bio)
+        if (status != null) body.put("status", status)
+        Api.patch("profiles?id=eq.${uid()}", token(), body)
+    }
+
+    /** uploads an image/file to Storage and returns its public URL */
+    fun uploadMedia(bytes: ByteArray, ext: String, mime: String): String {
+        val path = "${uid()}/${System.currentTimeMillis()}_${(0..9999).random()}.$ext"
+        return Api.upload(path, token(), bytes, mime)
+    }
+
     fun heartbeat() {
         try {
             Api.patch(
@@ -178,7 +192,7 @@ class Repo(private val session: Session) {
         try {
             val msgs = JSONArray(
                 Api.get(
-                    "messages?conversation_id=in.($inList)&select=conversation_id,content,created_at,sender_id" +
+                    "messages?conversation_id=in.($inList)&select=conversation_id,content,created_at,sender_id,media_type" +
                         "&order=created_at.desc&limit=300", token()
                 )
             )
@@ -200,7 +214,17 @@ class Repo(private val session: Session) {
             ChatSummary(
                 conversation = c,
                 title = if (c.isGroup) (c.title ?: "Group") else (other?.handle ?: "@user"),
-                lastMessage = last?.optString("content"),
+                lastMessage = last?.let { r ->
+                    val ct = jstr(r, "content")
+                    val mt = jstr(r, "media_type")
+                    when {
+                        ct != null && ct.isNotBlank() -> ct
+                        mt != null && mt.startsWith("image") -> "Photo"
+                        mt != null && mt.startsWith("video") -> "Video"
+                        mt != null -> "Attachment"
+                        else -> null
+                    }
+                },
                 lastAt = last?.optString("created_at"),
                 other = other,
             )
@@ -214,14 +238,36 @@ class Repo(private val session: Session) {
         return (0 until arr.length()).map { Message.from(arr.getJSONObject(it)) }
     }
 
-    fun sendMessage(conversationId: String, content: String) {
-        Api.post(
-            "messages", token(),
-            JSONObject()
-                .put("conversation_id", conversationId)
-                .put("sender_id", uid())
-                .put("content", content),
-        )
+    fun sendMessage(conversationId: String, content: String, replyTo: String? = null) {
+        val body = JSONObject()
+            .put("conversation_id", conversationId)
+            .put("sender_id", uid())
+            .put("content", content)
+        if (replyTo != null) body.put("reply_to", replyTo)
+        Api.post("messages", token(), body)
+    }
+
+    fun sendMedia(
+        conversationId: String,
+        mediaUrl: String,
+        mediaType: String,
+        mediaName: String,
+        caption: String? = null,
+        replyTo: String? = null,
+    ) {
+        val body = JSONObject()
+            .put("conversation_id", conversationId)
+            .put("sender_id", uid())
+            .put("media_url", mediaUrl)
+            .put("media_type", mediaType)
+            .put("media_name", mediaName)
+        if (!caption.isNullOrBlank()) body.put("content", caption)
+        if (replyTo != null) body.put("reply_to", replyTo)
+        Api.post("messages", token(), body)
+    }
+
+    fun deleteMessage(id: String) {
+        Api.delete("messages?id=eq.$id", token())
     }
 
     fun memberProfiles(conversationId: String): List<Profile> {

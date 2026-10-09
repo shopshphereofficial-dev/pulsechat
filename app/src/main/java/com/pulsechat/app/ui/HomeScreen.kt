@@ -59,6 +59,7 @@ fun HomeScreen(
     prefs: Prefs,
     onThemeChanged: (Int) -> Unit,
     onWallpaperChanged: (Int) -> Unit,
+    onProfileSaved: () -> Unit,
     onOpenChat: (ChatTarget) -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -78,6 +79,8 @@ fun HomeScreen(
                 tab == 1 -> FriendsScreen(repo = repo, onOpenChat = onOpenChat)
                 else -> SettingsScreen(
                     profile = profile,
+                    repo = repo,
+                    onProfileSaved = onProfileSaved,
                     prefs = prefs,
                     onThemeChanged = onThemeChanged,
                     onWallpaperChanged = onWallpaperChanged,

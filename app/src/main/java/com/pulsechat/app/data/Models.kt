@@ -15,6 +15,8 @@ data class Profile(
     val displayName: String?,
     val avatarUrl: String?,
     val lastSeenMs: Long,
+    val bio: String?,
+    val status: String?,
 ) {
     val handle: String get() = "@" + (username ?: "user")
     val label: String get() = displayName?.takeIf { it.isNotBlank() } ?: username ?: "PulseChat user"
@@ -29,6 +31,8 @@ data class Profile(
             displayName = jstr(o, "display_name"),
             avatarUrl = jstr(o, "avatar_url"),
             lastSeenMs = o.optLong("last_seen_ms", 0L),
+            bio = jstr(o, "bio"),
+            status = jstr(o, "status"),
         )
     }
 }
@@ -71,16 +75,28 @@ data class Message(
     val id: String,
     val conversationId: String,
     val senderId: String,
-    val content: String,
+    val content: String?,
     val createdAt: String,
+    val replyTo: String?,
+    val mediaUrl: String?,
+    val mediaType: String?,
+    val mediaName: String?,
 ) {
+    val hasMedia: Boolean get() = !mediaUrl.isNullOrEmpty()
+    val isImage: Boolean get() = mediaType?.startsWith("image") == true
+    val isVideo: Boolean get() = mediaType?.startsWith("video") == true
+
     companion object {
         fun from(o: JSONObject): Message = Message(
             o.optString("id"),
             o.optString("conversation_id"),
             o.optString("sender_id"),
-            o.optString("content"),
+            jstr(o, "content"),
             o.optString("created_at"),
+            jstr(o, "reply_to"),
+            jstr(o, "media_url"),
+            jstr(o, "media_type"),
+            jstr(o, "media_name"),
         )
     }
 }
