@@ -1,19 +1,14 @@
 package com.pulsechat.app.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -29,7 +24,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -42,15 +36,13 @@ import com.pulsechat.app.ui.theme.Bg
 import com.pulsechat.app.ui.theme.Cyan
 import com.pulsechat.app.ui.theme.Green
 import com.pulsechat.app.ui.theme.Red
-import com.pulsechat.app.ui.theme.Surface1
 import com.pulsechat.app.ui.theme.TextDim
-import com.pulsechat.app.ui.theme.TextMain
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class Stage { LOADING, LOGIN, USERNAME, HOME }
-enum class Tab { CHATS, FRIENDS, PROFILE }
 
 @Composable
 fun PulseChatApp() {
@@ -63,6 +55,7 @@ fun PulseChatApp() {
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var profile by remember { mutableStateOf<Profile?>(null) }
+    var openChat by remember { mutableStateOf<ChatTarget?>(null) }
 
     LaunchedEffect(Unit) {
         if (session.isLoggedIn()) {
@@ -112,7 +105,7 @@ fun PulseChatApp() {
                 profile = withContext(Dispatchers.IO) { repo.myProfile() }
                 stage = Stage.HOME
             } catch (e: Exception) {
-                error = "That username is taken or invalid. Try another."
+                error = "Ye username already taken hai. Koi aur try karo."
             } finally {
                 busy = false
             }
@@ -125,6 +118,7 @@ fun PulseChatApp() {
             withContext(Dispatchers.IO) { if (t != null) Api.signOut(t) }
             session.clear()
             profile = null
+            openChat = null
             stage = Stage.LOGIN
         }
     }
@@ -137,11 +131,25 @@ fun PulseChatApp() {
                 }
                 Stage.LOGIN -> LoginScreen(busy = busy, error = error, onLogin = { doLogin() })
                 Stage.USERNAME -> UsernameScreen(busy = busy, error = error, onSubmit = { claimUsername(it) })
-                Stage.HOME -> HomeScreen(
-                    repo = repo,
-                    profile = profile,
-                    onSignOut = { signOut() },
-                )
+                Stage.HOME -> {
+                    LaunchedEffect(Unit) {
+                        while (true) {
+                            withContext(Dispatchers.IO) { repo.heartbeat() }
+                            delay(30000)
+                        }
+                    }
+                    val chat = openChat
+                    if (chat != null) {
+                        ChatScreen(repo, chat, myId = session.userId ?: "", onBack = { openChat = null })
+                    } else {
+                        HomeScreen(
+                            repo = repo,
+                            profile = profile,
+                            onOpenChat = { openChat = it },
+                            onSignOut = { signOut() },
+                        )
+                    }
+                }
             }
         }
     }
@@ -156,7 +164,7 @@ fun LoginScreen(busy: Boolean, error: String?, onLogin: () -> Unit) {
     ) {
         Text("PulseChat", style = MaterialTheme.typography.displaySmall, color = Cyan, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        Text("Chat with friends. Voice & video coming soon.", color = TextDim)
+        Text("Chat with friends. Online status, groups, and more.", color = TextDim)
         Spacer(Modifier.height(40.dp))
         Button(
             onClick = onLogin,
