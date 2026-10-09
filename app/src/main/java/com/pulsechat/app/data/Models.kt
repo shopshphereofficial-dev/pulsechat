@@ -2,6 +2,13 @@ package com.pulsechat.app.data
 
 import org.json.JSONObject
 
+/** Android's JSONObject.optString returns the literal string "null" for JSON null — this avoids that. */
+internal fun jstr(o: JSONObject, key: String): String? {
+    if (o.isNull(key)) return null
+    val v = o.optString(key, "")
+    return if (v.isEmpty() || v == "null") null else v
+}
+
 data class Profile(
     val id: String,
     val username: String?,
@@ -10,7 +17,7 @@ data class Profile(
     val lastSeenMs: Long,
 ) {
     val handle: String get() = "@" + (username ?: "user")
-    val label: String get() = displayName?.takeIf { it.isNotBlank() } ?: username ?: "user"
+    val label: String get() = displayName?.takeIf { it.isNotBlank() } ?: username ?: "PulseChat user"
     val initial: String get() = label.trim().take(1).uppercase()
 
     fun isOnline(): Boolean = lastSeenMs > 0 && System.currentTimeMillis() - lastSeenMs < 70_000
@@ -18,9 +25,9 @@ data class Profile(
     companion object {
         fun from(o: JSONObject): Profile = Profile(
             id = o.optString("id"),
-            username = o.optString("username").ifEmpty { null },
-            displayName = o.optString("display_name").ifEmpty { null },
-            avatarUrl = o.optString("avatar_url").ifEmpty { null },
+            username = jstr(o, "username"),
+            displayName = jstr(o, "display_name"),
+            avatarUrl = jstr(o, "avatar_url"),
             lastSeenMs = o.optLong("last_seen_ms", 0L),
         )
     }
@@ -54,7 +61,7 @@ data class Conversation(
         fun from(o: JSONObject): Conversation = Conversation(
             o.optString("id"),
             o.optBoolean("is_group", false),
-            o.optString("title").ifEmpty { null },
+            jstr(o, "title"),
             o.optString("created_by"),
         )
     }
@@ -84,4 +91,12 @@ data class ChatSummary(
     val lastMessage: String?,
     val lastAt: String?,
     val other: Profile?,
+)
+
+data class CallInfo(
+    val id: String,
+    val callerId: String,
+    val calleeId: String,
+    val kind: String,
+    val status: String,
 )

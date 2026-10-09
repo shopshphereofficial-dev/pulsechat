@@ -20,6 +20,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.pulsechat.app.data.Message
+import com.pulsechat.app.data.Profile
 import com.pulsechat.app.data.Repo
 import com.pulsechat.app.ui.theme.Cyan
 import com.pulsechat.app.ui.theme.Red
@@ -45,7 +47,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun ChatScreen(repo: Repo, target: ChatTarget, myId: String, onBack: () -> Unit) {
+fun ChatScreen(
+    repo: Repo,
+    target: ChatTarget,
+    myId: String,
+    onBack: () -> Unit,
+    onStartCall: (Profile, String) -> Unit,
+) {
     var messages by remember { mutableStateOf<List<Message>>(emptyList()) }
     var text by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -79,6 +87,13 @@ fun ChatScreen(repo: Repo, target: ChatTarget, myId: String, onBack: () -> Unit)
                 title = target.title,
                 subtitle = if (target.isGroup) "group chat" else presenceText(target.other),
                 onBack = onBack,
+                trailing = {
+                    val other = target.other
+                    if (!target.isGroup && other != null) {
+                        TextButton(onClick = { onStartCall(other, "voice") }) { Text("Call", color = Cyan) }
+                        TextButton(onClick = { onStartCall(other, "video") }) { Text("Video", color = Violet) }
+                    }
+                },
             )
         }
         error?.let {
@@ -102,9 +117,6 @@ fun ChatScreen(repo: Repo, target: ChatTarget, myId: String, onBack: () -> Unit)
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                     ) {
                         Column {
-                            if (target.isGroup && !mine) {
-                                Text("member", color = Cyan, style = MaterialTheme.typography.bodySmall)
-                            }
                             Text(m.content, color = TextMain)
                             Text(shortTime(m.createdAt), color = TextDim, style = MaterialTheme.typography.bodySmall)
                         }

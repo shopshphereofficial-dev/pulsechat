@@ -33,7 +33,6 @@ class Repo(private val session: Session) {
         Api.patch("profiles?id=eq.${uid()}", token(), JSONObject().put("username", username))
     }
 
-    /** marks me as online (WhatsApp-style presence) */
     fun heartbeat() {
         try {
             Api.patch(
@@ -80,11 +79,24 @@ class Repo(private val session: Session) {
         }
     }
 
+    /** If they already sent us a request, accept it instead of creating a duplicate row. */
     fun sendFriendRequest(targetId: String) {
+        val me = uid()
+        val existing = JSONArray(
+            Api.get("friendships?select=*&or=(and(requester_id.eq.$me,addressee_id.eq.$targetId),and(requester_id.eq.$targetId,addressee_id.eq.$me))", token())
+        )
+        if (existing.length() > 0) {
+            val f = Friendship.from(existing.getJSONObject(0))
+            if (f.status == "pending" && f.addresseeId == me) {
+                acceptRequest(f.id)
+                return
+            }
+            return // already friends or already requested
+        }
         Api.post(
             "friendships", token(),
             JSONObject()
-                .put("requester_id", uid())
+                .put("requester_id", me)
                 .put("addressee_id", targetId)
                 .put("status", "pending"),
         )
@@ -92,7 +104,7 @@ class Repo(private val session: Session) {
 
     private fun profilesByIds(ids: List<String>): Map<String, Profile> {
         if (ids.isEmpty()) return emptyMap()
-        val inList = ids.joinToString(",")
+        val inList = ids.distinct().joinToString(",")
         val arr = JSONArray(Api.get("profiles?id=in.($inList)&select=*", token()))
         val map = HashMap<String, Profile>()
         for (i in 0 until arr.length()) {
@@ -106,7 +118,10 @@ class Repo(private val session: Session) {
         val arr = JSONArray(
             Api.get("friendships?addressee_id=eq.${uid()}&status=eq.pending&select=*", token())
         )
-        val list = (0 until arr.length()).map { Friendship.from(arr.getJSONObject(it)) }
+        val seen = HashSet<String>()
+        val list = (0 until arr.length())
+            .map { Friendship.from(arr.getJSONObject(it)) }
+            .filter { seen.add(it.requesterId) }
         val map = profilesByIds(list.map { it.requesterId })
         return list.mapNotNull { f -> map[f.requesterId]?.let { FriendRequest(f, it) } }
     }
@@ -122,7 +137,7 @@ class Repo(private val session: Session) {
             otherIds.add(if (f.requesterId == me) f.addresseeId else f.requesterId)
         }
         val map = profilesByIds(otherIds)
-        return otherIds.mapNotNull { map[it] }
+        return otherIds.distinct().mapNotNull { map[it] }
     }
 
     fun acceptRequest(friendshipId: String) {
@@ -142,6 +157,7 @@ class Repo(private val session: Session) {
         )
         val convIds = (0 until memberRows.length())
             .map { memberRows.getJSONObject(it).getString("conversation_id") }
+            .distinct()
         if (convIds.isEmpty()) return emptyList()
         val inList = convIds.joinToString(",")
 
@@ -218,8 +234,27 @@ class Repo(private val session: Session) {
 
     fun openDirect(otherId: String): String {
         val me = uid()
-        for (s in myConversations()) {
-            if (!s.conversation.isGroup && s.other?.id == otherId) return s.conversation.id
+        val mine = JSONArray(Api.get("conversation_members?user_id=eq.$me&select=conversation_id", token()))
+        val myConvIds = (0 until mine.length())
+            .map { mine.getJSONObject(it).getString("conversation_id") }.distinct()
+        if (myConvIds.isNotEmpty()) {
+            val inList = myConvIds.joinToString(",")
+            val direct = JSONArray(Api.get("conversations?id=in.($inList)&is_group=eq.false&select=id", token()))
+            val directIds = (0 until direct.length()).map { direct.getJSONObject(it).getString("id") }
+            if (directIds.isNotEmpty()) {
+                val inList2 = directIds.joinToString(",")
+                val mem = JSONArray(
+                    Api.get("conversation_members?conversation_id=in.($inList2)&select=conversation_id,user_id", token())
+                )
+                val byConv = HashMap<String, MutableList<String>>()
+                for (i in 0 until mem.length()) {
+                    val o = mem.getJSONObject(i)
+                    byConv.getOrPut(o.getString("conversation_id")) { mutableListOf() }.add(o.getString("user_id"))
+                }
+                for ((cid, members) in byConv) {
+                    if (members.size == 2 && members.contains(otherId)) return cid
+                }
+            }
         }
         val created = JSONArray(
             Api.post("conversations", token(), JSONObject().put("is_group", false).put("created_by", me))
@@ -240,7 +275,7 @@ class Repo(private val session: Session) {
         )
         val cid = created.getJSONObject(0).getString("id")
         addMember(cid, me)
-        memberIds.forEach { addMember(cid, it) }
+        memberIds.distinct().forEach { addMember(cid, it) }
         return cid
     }
 
@@ -250,4 +285,43 @@ class Repo(private val session: Session) {
             JSONObject().put("conversation_id", conversationId).put("user_id", userId),
         )
     }
+
+    // ---------------- calls ----------------
+
+    fun startCall(calleeId: String, kind: String): CallInfo {
+        val me = uid()
+        val res = JSONArray(
+            Api.post(
+                "calls", token(),
+                JSONObject()
+                    .put("caller_id", me)
+                    .put("callee_id", calleeId)
+                    .put("kind", kind)
+                    .put("status", "ringing"),
+            )
+        )
+        return CallInfo.from(res.getJSONObject(0))
+    }
+
+    fun getCall(id: String): CallInfo? {
+        val arr = JSONArray(Api.get("calls?id=eq.$id&select=*", token()))
+        return if (arr.length() > 0) CallInfo.from(arr.getJSONObject(0)) else null
+    }
+
+    fun incomingCall(): CallInfo? {
+        val me = uid()
+        val arr = JSONArray(
+            Api.get("calls?callee_id=eq.$me&status=eq.ringing&select=*&order=created_at.desc&limit=1", token())
+        )
+        return if (arr.length() > 0) CallInfo.from(arr.getJSONObject(0)) else null
+    }
+
+    fun setCallStatus(id: String, status: String) {
+        try {
+            Api.patch("calls?id=eq.$id", token(), JSONObject().put("status", status))
+        } catch (_: Exception) {
+        }
+    }
+
+    fun profileById(id: String): Profile? = profilesByIds(listOf(id))[id]
 }

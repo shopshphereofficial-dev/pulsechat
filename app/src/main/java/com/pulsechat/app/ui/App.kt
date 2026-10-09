@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pulsechat.app.data.Api
+import com.pulsechat.app.data.CallInfo
 import com.pulsechat.app.data.GoogleAuth
 import com.pulsechat.app.data.Profile
 import com.pulsechat.app.data.Repo
@@ -56,6 +57,9 @@ fun PulseChatApp() {
     var busy by remember { mutableStateOf(false) }
     var profile by remember { mutableStateOf<Profile?>(null) }
     var openChat by remember { mutableStateOf<ChatTarget?>(null) }
+    var activeCall by remember { mutableStateOf<CallInfo?>(null) }
+    var callOther by remember { mutableStateOf<Profile?>(null) }
+    var callIsCaller by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         if (session.isLoggedIn()) {
@@ -70,6 +74,25 @@ fun PulseChatApp() {
             }
         } else {
             stage = Stage.LOGIN
+        }
+    }
+
+    // heartbeat + incoming call polling (only while logged in)
+    LaunchedEffect(stage) {
+        if (stage != Stage.HOME) return@LaunchedEffect
+        var n = 0
+        while (true) {
+            withContext(Dispatchers.IO) { repo.heartbeat() }
+            if (activeCall == null) {
+                val c = runCatching { withContext(Dispatchers.IO) { repo.incomingCall() } }.getOrNull()
+                if (c != null) {
+                    callOther = runCatching { withContext(Dispatchers.IO) { repo.profileById(c.callerId) } }.getOrNull()
+                    callIsCaller = false
+                    activeCall = c
+                }
+            }
+            n++
+            delay(15000)
         }
     }
 
@@ -119,6 +142,7 @@ fun PulseChatApp() {
             session.clear()
             profile = null
             openChat = null
+            activeCall = null
             stage = Stage.LOGIN
         }
     }
@@ -132,17 +156,35 @@ fun PulseChatApp() {
                 Stage.LOGIN -> LoginScreen(busy = busy, error = error, onLogin = { doLogin() })
                 Stage.USERNAME -> UsernameScreen(busy = busy, error = error, onSubmit = { claimUsername(it) })
                 Stage.HOME -> {
-                    LaunchedEffect(Unit) {
-                        while (true) {
-                            withContext(Dispatchers.IO) { repo.heartbeat() }
-                            delay(30000)
-                        }
-                    }
+                    val call = activeCall
                     val chat = openChat
-                    if (chat != null) {
-                        ChatScreen(repo, chat, myId = session.userId ?: "", onBack = { openChat = null })
-                    } else {
-                        HomeScreen(
+                    when {
+                        call != null -> CallScreen(
+                            repo = repo,
+                            call = call,
+                            other = callOther,
+                            isCaller = callIsCaller,
+                            onClose = { activeCall = null },
+                        )
+                        chat != null -> ChatScreen(
+                            repo = repo,
+                            target = chat,
+                            myId = session.userId ?: "",
+                            onBack = { openChat = null },
+                            onStartCall = { p, kind ->
+                                scope.launch {
+                                    try {
+                                        val c = withContext(Dispatchers.IO) { repo.startCall(p.id, kind) }
+                                        callOther = p
+                                        callIsCaller = true
+                                        activeCall = c
+                                    } catch (e: Exception) {
+                                        error = e.message
+                                    }
+                                }
+                            },
+                        )
+                        else -> HomeScreen(
                             repo = repo,
                             profile = profile,
                             onOpenChat = { openChat = it },
@@ -164,7 +206,7 @@ fun LoginScreen(busy: Boolean, error: String?, onLogin: () -> Unit) {
     ) {
         Text("PulseChat", style = MaterialTheme.typography.displaySmall, color = Cyan, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        Text("Chat with friends. Online status, groups, and more.", color = TextDim)
+        Text("Chat, groups, presence and calls.", color = TextDim)
         Spacer(Modifier.height(40.dp))
         Button(
             onClick = onLogin,
