@@ -167,11 +167,15 @@ class Repo(private val session: Session) {
     fun myConversations(): List<ChatSummary> {
         val me = uid()
         val memberRows = JSONArray(
-            Api.get("conversation_members?user_id=eq.$me&select=conversation_id", token())
+            Api.get("conversation_members?user_id=eq.$me&select=conversation_id,last_read_at", token())
         )
-        val convIds = (0 until memberRows.length())
-            .map { memberRows.getJSONObject(it).getString("conversation_id") }
-            .distinct()
+        val myRead = HashMap<String, String>()
+        val convIds = (0 until memberRows.length()).map {
+            val o = memberRows.getJSONObject(it)
+            val cid = o.getString("conversation_id")
+            myRead[cid] = o.optString("last_read_at", "")
+            cid
+        }.distinct()
         if (convIds.isEmpty()) return emptyList()
         val inList = convIds.joinToString(",")
 
@@ -189,17 +193,22 @@ class Repo(private val session: Session) {
         }
 
         val lastByConv = HashMap<String, JSONObject>()
+        val unread = HashMap<String, Int>()
         try {
             val msgs = JSONArray(
                 Api.get(
                     "messages?conversation_id=in.($inList)&select=conversation_id,content,created_at,sender_id,media_type" +
-                        "&order=created_at.desc&limit=300", token()
+                        "&order=created_at.desc&limit=500", token()
                 )
             )
             for (i in 0 until msgs.length()) {
                 val o = msgs.getJSONObject(i)
                 val cid = o.getString("conversation_id")
                 if (!lastByConv.containsKey(cid)) lastByConv[cid] = o
+                val sender = o.optString("sender_id")
+                val created = o.optString("created_at")
+                val read = myRead[cid] ?: ""
+                if (sender != me && created > read) unread[cid] = (unread[cid] ?: 0) + 1
             }
         } catch (_: Exception) {
         }
@@ -227,6 +236,7 @@ class Repo(private val session: Session) {
                 },
                 lastAt = last?.optString("created_at"),
                 other = other,
+                unread = unread[c.id] ?: 0,
             )
         }.sortedByDescending { it.lastAt ?: "" }
     }
@@ -343,4 +353,137 @@ class Repo(private val session: Session) {
     }
 
     fun profileById(id: String): Profile? = profilesByIds(listOf(id))[id]
+
+    // ---------------- read / typing ----------------
+
+    fun markRead(conversationId: String) {
+        try {
+            Api.patch(
+                "conversation_members?conversation_id=eq.$conversationId&user_id=eq.${uid()}", token(),
+                JSONObject().put("last_read_at", isoNow()),
+            )
+        } catch (_: Exception) {
+        }
+    }
+
+    fun setTyping(conversationId: String) {
+        try {
+            Api.patch(
+                "conversation_members?conversation_id=eq.$conversationId&user_id=eq.${uid()}", token(),
+                JSONObject().put("typing_at", isoNow()),
+            )
+        } catch (_: Exception) {
+        }
+    }
+
+    fun isTyping(conversationId: String, who: String): Boolean {
+        return try {
+            val arr = JSONArray(
+                Api.get("conversation_members?conversation_id=eq.$conversationId&user_id=eq.$who&select=typing_at", token())
+            )
+            if (arr.length() == 0) return false
+            val t = jstr(arr.getJSONObject(0), "typing_at") ?: return false
+            if (t.length < 19) return false
+            val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+            fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
+            val parsed = fmt.parse(t.substring(0, 19)) ?: return false
+            System.currentTimeMillis() - parsed.time < 6000
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun otherLastRead(conversationId: String, who: String): String {
+        return try {
+            val arr = JSONArray(
+                Api.get("conversation_members?conversation_id=eq.$conversationId&user_id=eq.$who&select=last_read_at", token())
+            )
+            if (arr.length() == 0) "" else arr.getJSONObject(0).optString("last_read_at", "")
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    private fun isoNow(): String {
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US)
+        fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        return fmt.format(java.util.Date())
+    }
+
+    // ---------------- message actions ----------------
+
+    fun editMessage(id: String, text: String) {
+        Api.patch("messages?id=eq.$id", token(), JSONObject().put("content", text).put("edited_at", isoNow()))
+    }
+
+    fun setReaction(id: String, emoji: String?) {
+        val body = JSONObject()
+        if (emoji == null) body.put("reaction", JSONObject.NULL) else body.put("reaction", emoji)
+        Api.patch("messages?id=eq.$id", token(), body)
+    }
+
+    fun togglePin(id: String, pinned: Boolean) {
+        Api.patch("messages?id=eq.$id", token(), JSONObject().put("pinned", pinned))
+    }
+
+    fun forward(conversationId: String, m: Message) {
+        val body = JSONObject()
+            .put("conversation_id", conversationId)
+            .put("sender_id", uid())
+        if (m.content != null) body.put("content", m.content)
+        if (m.mediaUrl != null) {
+            body.put("media_url", m.mediaUrl)
+            body.put("media_type", m.mediaType)
+            body.put("media_name", m.mediaName)
+        }
+        Api.post("messages", token(), body)
+    }
+
+    fun searchMessages(conversationId: String, q: String): List<Message> {
+        val query = q.trim().replace("%", "")
+        if (query.isEmpty()) return emptyList()
+        val arr = JSONArray(
+            Api.get("messages?conversation_id=eq.$conversationId&content=ilike.*$query*&select=*&order=created_at.desc&limit=50", token())
+        )
+        return (0 until arr.length()).map { Message.from(arr.getJSONObject(it)) }
+    }
+
+    // ---------------- blocks ----------------
+
+    fun blockedIds(): Set<String> {
+        return try {
+            val arr = JSONArray(Api.get("blocks?blocker_id=eq.${uid()}&select=blocked_id", token()))
+            (0 until arr.length()).map { arr.getJSONObject(it).getString("blocked_id") }.toSet()
+        } catch (e: Exception) {
+            emptySet()
+        }
+    }
+
+    fun block(userId: String) {
+        Api.post("blocks", token(), JSONObject().put("blocker_id", uid()).put("blocked_id", userId))
+    }
+
+    fun unblock(userId: String) {
+        Api.delete("blocks?blocker_id=eq.${uid()}&blocked_id=eq.$userId", token())
+    }
+
+    // ---------------- groups ----------------
+
+    fun leaveGroup(conversationId: String) {
+        Api.delete("conversation_members?conversation_id=eq.$conversationId&user_id=eq.${uid()}", token())
+    }
+
+    fun addGroupMember(conversationId: String, userId: String) {
+        try {
+            Api.post(
+                "conversation_members", token(),
+                JSONObject().put("conversation_id", conversationId).put("user_id", userId),
+            )
+        } catch (_: Exception) {
+        }
+    }
+
+    fun renameGroup(conversationId: String, title: String) {
+        Api.patch("conversations?id=eq.$conversationId", token(), JSONObject().put("title", title))
+    }
 }

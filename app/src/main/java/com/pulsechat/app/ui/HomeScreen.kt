@@ -167,7 +167,16 @@ fun ChatListScreen(repo: Repo, onOpenChat: (ChatTarget) -> Unit, onNewChat: () -
                                 Text(s.title, color = c.text, fontWeight = FontWeight.SemiBold, maxLines = 1)
                                 Text(s.lastMessage ?: "No messages yet", color = c.dim, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                             }
-                            Text(shortTime(s.lastAt), color = c.dim, style = MaterialTheme.typography.bodySmall)
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(shortTime(s.lastAt), color = c.dim, style = MaterialTheme.typography.bodySmall)
+                                if (s.unread > 0) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Box(
+                                        modifier = Modifier.clip(androidx.compose.foundation.shape.CircleShape)
+                                            .background(c.ok).padding(horizontal = 7.dp, vertical = 2.dp),
+                                    ) { Text("${s.unread}", color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
+                                }
+                            }
                         }
                     }
                 }

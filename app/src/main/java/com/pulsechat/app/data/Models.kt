@@ -81,6 +81,9 @@ data class Message(
     val mediaUrl: String?,
     val mediaType: String?,
     val mediaName: String?,
+    val editedAt: String?,
+    val reaction: String?,
+    val pinned: Boolean,
 ) {
     val hasMedia: Boolean get() = !mediaUrl.isNullOrEmpty()
     val isImage: Boolean get() = mediaType?.startsWith("image") == true
@@ -97,6 +100,9 @@ data class Message(
             jstr(o, "media_url"),
             jstr(o, "media_type"),
             jstr(o, "media_name"),
+            jstr(o, "edited_at"),
+            jstr(o, "reaction"),
+            o.optBoolean("pinned", false),
         )
     }
 }
@@ -107,6 +113,7 @@ data class ChatSummary(
     val lastMessage: String?,
     val lastAt: String?,
     val other: Profile?,
+    val unread: Int,
 )
 
 data class CallInfo(
