@@ -99,4 +99,14 @@ data class CallInfo(
     val calleeId: String,
     val kind: String,
     val status: String,
-)
+) {
+    companion object {
+        fun from(o: JSONObject): CallInfo = CallInfo(
+            o.optString("id"),
+            o.optString("caller_id"),
+            o.optString("callee_id"),
+            o.optString("kind"),
+            o.optString("status"),
+        )
+    }
+}
