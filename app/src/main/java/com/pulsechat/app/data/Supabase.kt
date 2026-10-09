@@ -8,5 +8,5 @@ object Supabase {
     const val ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZpbGRndmZjeWhhd29qcG10ZGJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE1MTI1NjksImV4cCI6MjEwNzA4ODU2OX0.0iodEfFw7Llx6kgsklXfV9gsRlpsrPe6kNR72kHKs4Y"
 
     // Google OAuth *Web* client ID (from the google-services.json you provided).
-    const val GOOGLE_WEB_CLIENT_ID = "964983290570-o62n79kfq16jp8rplv6l8dhpgj61243d.apps.googleusercontent.com"
+    const val GOOGLE_WEB_CLIENT_ID = "964983290570-pdl093a3hrbrarq5mpnr9pt6opi0dstv.apps.googleusercontent.com"
 }
