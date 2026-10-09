@@ -364,6 +364,17 @@ class Repo(private val session: Session) {
         }
     }
 
+    /** LiveKit call credentials for a conversation (server mints the JWT). */
+    fun callToken(conversationId: String): Pair<String, String> {
+        val body = org.json.JSONObject().put("p_conversation", conversationId)
+        val text = Api.rpc("livekit_call_token", token(), body)
+        val o = org.json.JSONObject(text)
+        val url = o.optString("url")
+        val tok = o.optString("token")
+        if (url.isEmpty() || tok.isEmpty()) throw RuntimeException("Call server not ready")
+        return Pair(url, tok)
+    }
+
     fun profileById(id: String): Profile? = profilesByIds(listOf(id))[id]
 
     // ---------------- read / typing ----------------

@@ -3,15 +3,13 @@ package com.pulsechat.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,17 +43,29 @@ fun Avatar(profile: Profile?, size: Int = 48, showOnline: Boolean = false) {
     Box(contentAlignment = Alignment.Center) {
         Box(
             modifier = Modifier
-                .size(size.dp)
+                .size((size + 5).dp)
                 .clip(CircleShape)
-                .background(Brush.linearGradient(listOf(c.accent, c.primary))),
+                .background(
+                    Brush.linearGradient(
+                        listOf(c.primary.copy(alpha = 0.85f), c.accent.copy(alpha = 0.85f))
+                    )
+                ),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                profile?.initial ?: "?",
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = (size * 0.4).sp,
-            )
+            Box(
+                modifier = Modifier
+                    .size(size.dp)
+                    .clip(CircleShape)
+                    .background(Brush.linearGradient(listOf(c.accent, c.primary))),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    profile?.initial ?: "?",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = (size * 0.4).sp,
+                )
+            }
         }
         if (showOnline && profile?.isOnline() == true) {
             Box(
@@ -76,9 +86,10 @@ fun Card2(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(22.dp))
             .background(c.surface)
-            .padding(14.dp),
+            .border(1.dp, c.border, RoundedCornerShape(22.dp))
+            .padding(16.dp),
     ) { content() }
 }
 
@@ -90,20 +101,37 @@ fun TopBar(
     trailing: @Composable (() -> Unit)? = null,
 ) {
     val c = AppTheme.colors
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (onBack != null) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = c.text)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (onBack != null) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = c.text)
+                }
             }
+            Column(Modifier.weight(1f).padding(start = if (onBack == null) 6.dp else 0.dp)) {
+                Text(
+                    title,
+                    color = c.text,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+                subtitle?.let {
+                    Text(it, color = c.dim, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                }
+            }
+            trailing?.invoke()
         }
-        Column(Modifier.weight(1f)) {
-            Text(title, color = c.text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            subtitle?.let { Text(it, color = c.dim, style = MaterialTheme.typography.bodySmall, maxLines = 1) }
-        }
-        trailing?.invoke()
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(Brush.horizontalGradient(listOf(c.primary, c.accent, Color.Transparent))),
+        )
     }
 }
 
@@ -112,10 +140,10 @@ fun SectionHeader(text: String) {
     val c = AppTheme.colors
     Text(
         text.uppercase(),
-        color = c.dim,
+        color = c.primary,
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(top = 18.dp, bottom = 8.dp),
+        modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
     )
 }
 
@@ -130,8 +158,9 @@ fun RowItem(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(c.surface)
+            .border(1.dp, c.border, RoundedCornerShape(18.dp))
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .padding(12.dp),
     ) { content() }

@@ -1,6 +1,14 @@
 package com.pulsechat.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -60,6 +68,7 @@ fun PulseChatApp() {
     var profile by remember { mutableStateOf<Profile?>(null) }
     var openChat by remember { mutableStateOf<ChatTarget?>(null) }
     var activeCall by remember { mutableStateOf<CallInfo?>(null) }
+    var callConv by remember { mutableStateOf<String?>(null) }
     var callOther by remember { mutableStateOf<Profile?>(null) }
     var callIsCaller by remember { mutableStateOf(false) }
 
@@ -97,6 +106,7 @@ fun PulseChatApp() {
                 val cl = runCatching { withContext(Dispatchers.IO) { repo.incomingCall() } }.getOrNull()
                 if (cl != null) {
                     callOther = runCatching { withContext(Dispatchers.IO) { repo.profileById(cl.callerId) } }.getOrNull()
+                    callConv = runCatching { withContext(Dispatchers.IO) { repo.openDirect(cl.callerId) } }.getOrNull()
                     callIsCaller = false
                     activeCall = cl
                 } else {
@@ -171,7 +181,14 @@ fun PulseChatApp() {
                         val call = activeCall
                         val chat = openChat
                         when {
-                            call != null -> CallScreen(repo, call, callOther, callIsCaller, onClose = { activeCall = null })
+                            call != null -> CallScreen(
+                                repo = repo,
+                                call = call,
+                                conversationId = callConv ?: "",
+                                other = callOther,
+                                isCaller = callIsCaller,
+                                onClose = { activeCall = null; callConv = null },
+                            )
                             chat != null -> ChatScreen(
                                 repo = repo,
                                 target = chat,
@@ -182,7 +199,7 @@ fun PulseChatApp() {
                                     scope.launch {
                                         try {
                                             val cl = withContext(Dispatchers.IO) { repo.startCall(p.id, kind) }
-                                            callOther = p; callIsCaller = true; activeCall = cl
+                                            callOther = p; callIsCaller = true; callConv = chat.conversationId; activeCall = cl
                                         } catch (e: Exception) { error = e.message }
                                     }
                                 },
@@ -217,17 +234,28 @@ fun LoginScreen(busy: Boolean, error: String?, onLogin: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("PulseChat", style = MaterialTheme.typography.displaySmall, color = c.primary, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .size(96.dp)
+                .clip(CircleShape)
+                .background(Brush.linearGradient(listOf(c.primary, c.accent))),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("P", color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(22.dp))
+        Text("PulseChat", style = MaterialTheme.typography.displaySmall, color = c.text, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(6.dp))
         Text("Chat, groups, presence and calls.", color = c.dim)
-        Spacer(Modifier.height(40.dp))
+        Spacer(Modifier.height(46.dp))
         Button(
             onClick = onLogin,
             enabled = !busy,
-            colors = ButtonDefaults.buttonColors(containerColor = c.ok),
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Continue with Google") }
-        if (busy) { Spacer(Modifier.height(16.dp)); CircularProgressIndicator() }
-        error?.let { Spacer(Modifier.height(16.dp)); Text(it, color = c.danger, style = MaterialTheme.typography.bodySmall) }
+            colors = ButtonDefaults.buttonColors(containerColor = c.primary),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().height(54.dp),
+        ) { Text("Continue with Google", fontWeight = FontWeight.SemiBold) }
+        if (busy) { Spacer(Modifier.height(18.dp)); CircularProgressIndicator() }
+        error?.let { Spacer(Modifier.height(18.dp)); Text(it, color = c.danger, style = MaterialTheme.typography.bodySmall) }
     }
 }
