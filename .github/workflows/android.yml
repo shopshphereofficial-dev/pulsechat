@@ -49,10 +49,14 @@ jobs:
             gh release create "$TAG" --title "PulseChat v$V" --notes "PulseChat v$V - Android chat app (Android 7.0+)."
           fi
           gh release upload "$TAG" "pulsechat-v$V.apk" --clobber
+      - name: Prepare app.apk
+        run: cp $(find app/build/outputs/apk -name '*.apk' | head -1) app.apk
       - name: Publish standard app.apk release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest APK
+          make_latest: true
+          files: app.apk
         env:
-          GH_TOKEN: ${ secrets.GITHUB_TOKEN }
-        run: |
-          APK=$(find app/build/outputs/apk -name '*.apk' | head -1)
-          cp "$APK" app.apk
-          gh release create latest app.apk --title "Latest APK" --notes "Auto-built APK from source. Direct download." --latest 2>/dev/null || gh release upload latest app.apk --clobber
+          GITHUB_TOKEN: ${ secrets.GITHUB_TOKEN }
