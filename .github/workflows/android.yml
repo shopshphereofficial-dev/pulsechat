@@ -49,10 +49,9 @@ jobs:
             gh release create "$TAG" --title "PulseChat v$V" --notes "PulseChat v$V - Android chat app (Android 7.0+)."
           fi
           gh release upload "$TAG" "pulsechat-v$V.apk" --clobber
-
       - name: Publish standard app.apk release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${ secrets.GITHUB_TOKEN }
         run: |
           APK=$(find app/build/outputs/apk -name '*.apk' | head -1)
           cp "$APK" app.apk
